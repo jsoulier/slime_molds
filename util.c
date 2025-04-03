@@ -126,7 +126,9 @@ SDL_GPUComputePipeline* load_compute_pipeline(
         case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE:
             if (binding->decoration_flags & SPV_REFLECT_DECORATION_NON_WRITABLE)
             {
-                info.num_readonly_storage_textures++;
+                /* NOTE: SDL binds read-only storage textures as samplers. */
+                /* Don't use them and use texelFetch on the samplers instead. */
+                assert(false);
             }
             else
             {

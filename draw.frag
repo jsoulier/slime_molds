@@ -1,10 +1,12 @@
 #version 450
 
+#include "config.h"
+
 layout(location = 0) in vec2 i_uv;
 layout(location = 0) out vec4 o_color;
 layout(set = 2, binding = 0) uniform usampler2D s_trail;
 
-const vec3 COLORS[] = vec3[8]
+const vec3 colors[] = vec3[COLOR_COUNT]
 (
     vec3(1, 0, 0), /* RED */
     vec3(0, 1, 0), /* GREEN */
@@ -19,27 +21,27 @@ const vec3 COLORS[] = vec3[8]
 void main()
 {
     const uvec4 trail = texture(s_trail, i_uv);
-    const uint counts[] = uint[8]
+    const uint counts[] = uint[COLOR_COUNT]
     (
-        (trail[0] >> 0) & 0xFFFF, /* RED */ 
-        (trail[0] >> 16) & 0xFFFF, /* GREEN */ 
-        (trail[1] >> 0) & 0xFFFF, /* BLUE */ 
-        (trail[1] >> 16) & 0xFFFF, /* WHITE */ 
-        (trail[2] >> 0) & 0xFFFF, /* BLACK */ 
-        (trail[2] >> 16) & 0xFFFF, /* MAGENTA */ 
-        (trail[3] >> 0) & 0xFFFF, /* CYAN */ 
-        (trail[3] >> 16) & 0xFFFF /* YELLOW */ 
+        GET_RED(trail),
+        GET_GREEN(trail),
+        GET_BLUE(trail),
+        GET_WHITE(trail),
+        GET_BLACK(trail),
+        GET_MAGENTA(trail),
+        GET_CYAN(trail),
+        GET_YELLOW(trail)
     );
     uint count = 0;
     uint index = 0;
-    for (uint i = 0; i < 8; i++)
+    for (uint i = 0; i < COLOR_COUNT; i++)
     {
         if (counts[i] > count)
         {
-            index = 0;
             count = counts[i];
+            index = i;
         }
     }
     /* TODO: scale by the count */
-    o_color = vec4(COLORS[index], 0.2f);
+    o_color = vec4(colors[index], 1.0f);
 }

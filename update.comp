@@ -1,20 +1,56 @@
 #version 450
 
-struct Agent
+#include "config.h"
+
+layout(local_size_x = THREADS_X, local_size_y = THREADS_Y) in;
+
+struct agent_t
 {
     vec2 position;
     float angle;
     uint color;
 };
 
-layout(set = 0, binding = 0, rgba32ui) uniform readonly uimage2D s_trail_read;
-layout(set = 1, binding = 0, rgba32ui) uniform writeonly uimage2D s_trail_write;
+layout(set = 0, binding = 0) uniform usampler2D s_trail_read;
+layout(set = 1, binding = 0, rgba32ui) uniform writeonly uimage2D i_trail_write;
 layout(set = 1, binding = 1) buffer t_agents
 {
-    Agent b_agents[];
+    agent_t b_agents[];
 };
 
 void main()
 {
-
+    const uvec2 id = gl_GlobalInvocationID.xy;
+    if (id.x >= WIDTH || id.y >= HEIGHT)
+    {
+        return;
+    }
+    agent_t agent = b_agents[id.y * WIDTH + id.x];
+    uvec4 trail = texelFetch(s_trail_read, ivec2(agent.position), 0);
+    // const uint counts[] = uint[COLOR_COUNT]
+    // (
+    //     GET_RED(trail),
+    //     GET_GREEN(trail),
+    //     GET_BLUE(trail),
+    //     GET_WHITE(trail),
+    //     GET_BLACK(trail),
+    //     GET_MAGENTA(trail),
+    //     GET_CYAN(trail),
+    //     GET_YELLOW(trail)
+    // );
+    uvec4 colors[COLOR_COUNT];
+    for (int i = 0; i < COLOR_COUNT; i++)
+    {
+        colors[i] = uvec4(0);
+    }
+    SET_RED(colors[COLOR_RED], 1);
+    SET_GREEN(colors[COLOR_GREEN], 1);
+    SET_BLUE(colors[COLOR_BLUE], 1);
+    SET_WHITE(colors[COLOR_WHITE], 1);
+    SET_BLACK(colors[COLOR_BLACK], 1);
+    SET_MAGENTA(colors[COLOR_MAGENTA], 1);
+    SET_CYAN(colors[COLOR_CYAN], 1);
+    SET_YELLOW(colors[COLOR_YELLOW], 1);
+    trail += colors[agent.color];
+    imageStore(i_trail_write, ivec2(agent.position), trail);
 }
