@@ -25,7 +25,7 @@ agent_t;
 static SDL_Window* window;
 static SDL_GPUDevice* device;
 static SDL_GPUComputePipeline* update_pipeline;
-static SDL_GPUGraphicsPipeline* blur_pipeline;
+static SDL_GPUComputePipeline* blur_pipeline;
 static SDL_GPUGraphicsPipeline* draw_pipeline;
 static SDL_GPUBuffer* agent_buffer;
 static SDL_GPUTexture* trail_texture1;
@@ -65,11 +65,16 @@ static bool reload(const char* path)
         return false;
     }
     stbi_image_free(src);
-    uint32_t colors[COLOR_COUNT] =
+    const uint32_t colors[COLOR_COUNT] =
     {
-        0x0000FF, /* RED */
-        0x00FF00, /* GREEN */
-        0xFF0000, /* BLUE */
+        0x0000FF, /* red */
+        0x00FF00, /* green */
+        0xFF0000, /* blue */
+        0xFFFFFF, /* white */
+        0x000000, /* black */
+        0xFF00FF, /* magenta */
+        0xFFFF00, /* cyan */
+        0x00FFFF, /* yellow */
     };
     agent_t* agents = malloc(WIDTH * HEIGHT * sizeof(agent_t));
     if (!agents)
@@ -161,15 +166,15 @@ static bool reload(const char* path)
     SDL_EndGPUCopyPass(pass);
     SDL_ReleaseGPUTransferBuffer(device, tbo);
     SDL_GPUTextureCreateInfo tci = {0};
-    tci.type = SDL_GPU_TEXTURETYPE_2D;
-    tci.format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+    tci.type = SDL_GPU_TEXTURETYPE_3D;
+    tci.format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
     tci.usage =
         SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE |
         SDL_GPU_TEXTUREUSAGE_SAMPLER |
         SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
     tci.width = WIDTH;
     tci.height = HEIGHT;
-    tci.layer_count_or_depth = 1;
+    tci.layer_count_or_depth = COLOR_COUNT;
     tci.num_levels = 1;
     trail_texture1 = SDL_CreateGPUTexture(device, &tci);
     trail_texture2 = SDL_CreateGPUTexture(device, &tci);
@@ -226,10 +231,10 @@ int main(int argc, char** argv)
         return 1;
     }
     SDL_GPUShader* draw_shader = load_shader(device, "draw.frag");
-    SDL_GPUShader* blur_shader = load_shader(device, "blur.frag");
     SDL_GPUShader* quad_shader = load_shader(device, "quad.vert");
+    blur_pipeline = load_compute_pipeline(device, "blur.comp");
     update_pipeline = load_compute_pipeline(device, "update.comp");
-    if (!blur_shader || !draw_shader || !quad_shader || !update_pipeline)
+    if (!draw_shader || !quad_shader || !blur_pipeline || !update_pipeline)
     {
         SDL_Log("Failed to load shader(s)");
         return false;
@@ -263,26 +268,6 @@ int main(int argc, char** argv)
         SDL_Log("Failed to create draw pipeline: %s", SDL_GetError());
         return 1;
     }
-    blur_pipeline = SDL_CreateGPUGraphicsPipeline(device,
-        &(SDL_GPUGraphicsPipelineCreateInfo)
-    {
-        .vertex_shader = quad_shader,
-        .fragment_shader = blur_shader,
-        .target_info =
-        {
-            .num_color_targets = 1,
-            .color_target_descriptions = &(SDL_GPUColorTargetDescription)
-            {
-                .format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT
-            },
-        },
-    });
-    if (!blur_pipeline)
-    {
-        SDL_Log("Failed to create blur pipeline: %s", SDL_GetError());
-        return 1;
-    }
-    SDL_ReleaseGPUShader(device, blur_shader);
     SDL_ReleaseGPUShader(device, draw_shader);
     SDL_ReleaseGPUShader(device, quad_shader);
     SDL_GPUSamplerCreateInfo sci = {0};
@@ -354,35 +339,34 @@ int main(int argc, char** argv)
             tsb.texture = trail_texture1;
             SDL_BindGPUComputePipeline(pass, update_pipeline);
             SDL_BindGPUComputeSamplers(pass, 0, &tsb, 1);
-            const uint32_t time = SDL_GetTicks();
             const int x = (float) (WIDTH + THREADS_X - 1) / THREADS_X;
             const int y = (float) (HEIGHT + THREADS_Y - 1) / THREADS_Y;
-            SDL_PushGPUComputeUniformData(cb, 0, &time, sizeof(time));
             SDL_DispatchGPUCompute(pass, x, y, 1);
             SDL_EndGPUComputePass(pass);
             SDL_PopGPUDebugGroup(cb);
         }
         {
             SDL_PushGPUDebugGroup(cb, "blur");
-            SDL_GPUColorTargetInfo cti = {0};
-            cti.texture = trail_texture1;
-            cti.load_op = SDL_GPU_LOADOP_DONT_CARE;
-            cti.store_op = SDL_GPU_STOREOP_STORE;
-            SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cb, &cti, 1, NULL);
+            SDL_GPUStorageTextureReadWriteBinding stb = {0};
+            stb.texture = trail_texture1;
+            stb.cycle = true;
+            SDL_GPUComputePass* pass = SDL_BeginGPUComputePass(cb, &stb, 1, NULL, 0);
             if (!pass)
             {
                 SDL_PopGPUDebugGroup(cb);
                 SDL_SubmitGPUCommandBuffer(cb);
-                SDL_Log("Failed to begin draw pass: %s", SDL_GetError());
+                SDL_Log("Failed to begin blur pass: %s", SDL_GetError());
                 continue;
             }
-            SDL_GPUTextureSamplerBinding binding = {0};
-            binding.texture = trail_texture2;
-            binding.sampler = sampler;
-            SDL_BindGPUGraphicsPipeline(pass, blur_pipeline);
-            SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
-            SDL_DrawGPUPrimitives(pass, 4, 1, 0, 0);
-            SDL_EndGPURenderPass(pass);
+            SDL_GPUTextureSamplerBinding tsb = {0};
+            tsb.sampler = sampler;
+            tsb.texture = trail_texture2;
+            SDL_BindGPUComputePipeline(pass, blur_pipeline);
+            SDL_BindGPUComputeSamplers(pass, 0, &tsb, 1);
+            const int x = (float) (WIDTH + THREADS_X - 1) / THREADS_X;
+            const int y = (float) (HEIGHT + THREADS_Y - 1) / THREADS_Y;
+            SDL_DispatchGPUCompute(pass, x, y, 1);
+            SDL_EndGPUComputePass(pass);
             SDL_PopGPUDebugGroup(cb);
         }
         {
@@ -414,9 +398,9 @@ int main(int argc, char** argv)
     SDL_ReleaseGPUTexture(device, trail_texture1);
     SDL_ReleaseGPUTexture(device, trail_texture2);
     SDL_ReleaseGPUSampler(device, sampler);
-    SDL_ReleaseGPUComputePipeline(device, update_pipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, draw_pipeline);
-    SDL_ReleaseGPUGraphicsPipeline(device, blur_pipeline);
+    SDL_ReleaseGPUComputePipeline(device, blur_pipeline);
+    SDL_ReleaseGPUComputePipeline(device, update_pipeline);
     SDL_ReleaseWindowFromGPUDevice(device, window);
     SDL_DestroyGPUDevice(device);
     SDL_DestroyWindow(window);

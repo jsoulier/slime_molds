@@ -4,8 +4,6 @@
 
 #include "config.h"
 
-layout(local_size_x = THREADS_X, local_size_y = THREADS_Y) in;
-
 struct agent_t
 {
     vec2 position;
@@ -13,15 +11,12 @@ struct agent_t
     uint color;
 };
 
-layout(set = 0, binding = 0) uniform sampler2D s_trail_read;
-layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D i_trail_write;
+layout(local_size_x = THREADS_X, local_size_y = THREADS_Y) in;
+layout(set = 0, binding = 0) uniform sampler3D s_trail_read;
+layout(set = 1, binding = 0, rgba32f) uniform writeonly image3D i_trail_write;
 layout(set = 1, binding = 1) buffer t_agents
 {
     agent_t b_agents[];
-};
-layout(set = 2, binding = 0) uniform t_time
-{
-    uint u_time;
 };
 
 float rand(const vec2 position)
@@ -67,15 +62,14 @@ void main()
     float counts[SENSORS];
     for (int i = 0; i < SENSORS; i++)
     {
-        vec4 trail = vec4(0);
+        counts[i] = 0;
         for (int x = -SENSE_SIZE; x <= SENSE_SIZE; x++)
         for (int y = -SENSE_SIZE; y <= SENSE_SIZE; y++)
         {
             const ivec2 coord = positions[i] + ivec2(x, y);
-            trail += texelFetch(s_trail_read, coord, 0);
+            counts[i] += texelFetch(s_trail_read, ivec3(coord, agent.color), 0).x;
         }
-        trail /= pow(SENSE_SIZE * 2 + 1, 2);
-        counts[i] = trail[agent.color];
+        counts[i] /= pow(SENSE_SIZE * 2 + 1, 2);
     }
     if (counts[1] > counts[0] && counts[1] > counts[2])
     {
@@ -93,12 +87,9 @@ void main()
     {
         agent.angle -= AGENT_STEER_SPEED;
     }
-
     const vec2 direction = vec2(cos(agent.angle), sin(agent.angle));
     agent.position += AGENT_SPEED * direction;
-
-    vec4 trail = texelFetch(s_trail_read, ivec2(agent.position), 0);
-    trail[agent.color] += 1.0f;
-    imageStore(i_trail_write, ivec2(agent.position), trail);
+    float trail = texelFetch(s_trail_read, ivec3(agent.position, agent.color), 0).x;
+    imageStore(i_trail_write, ivec3(agent.position, agent.color), vec4(trail + 1.0f));
     b_agents[id.y * WIDTH + id.x] = agent;
 }
