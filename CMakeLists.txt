@@ -21,7 +21,7 @@ function(spirv FILE)
         OUTPUT ${OUTPUT}
         COMMAND glslc ${FILE} -o ${OUTPUT}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        DEPENDS ${FILE}
+        DEPENDS ${FILE} config.h
         BYPRODUCTS ${OUTPUT}
         COMMENT ${FILE}
     )
@@ -29,9 +29,9 @@ function(spirv FILE)
     add_custom_target(${NAME} DEPENDS ${OUTPUT})
     add_dependencies(slime_molds ${NAME})
 endfunction()
-spirv(diffuse.frag)
+spirv(blur.frag)
 spirv(draw.frag)
-spirv(fullscreen.vert)
+spirv(quad.vert)
 spirv(update.comp)
 
 configure_file(LICENSE.txt ${BINARY_DIR} COPYONLY)
