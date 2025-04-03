@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "config.h"
 #include "util.h"
 
@@ -27,20 +28,21 @@ static SDL_GPUComputePipeline* update_pipeline;
 static SDL_GPUGraphicsPipeline* blur_pipeline;
 static SDL_GPUGraphicsPipeline* draw_pipeline;
 static SDL_GPUBuffer* agent_buffer;
-static SDL_GPUTexture* trail_texture_read;
-static SDL_GPUTexture* trail_texture_write;
+static SDL_GPUTexture* trail_texture1;
+static SDL_GPUTexture* trail_texture2;
 static SDL_GPUSampler* sampler;
 static bool loaded;
 
 static bool reload(const char* path)
 {
     loaded = false;
+    srand(time(NULL));
     SDL_ReleaseGPUBuffer(device, agent_buffer);
-    SDL_ReleaseGPUTexture(device, trail_texture_read);
-    SDL_ReleaseGPUTexture(device, trail_texture_write);
+    SDL_ReleaseGPUTexture(device, trail_texture1);
+    SDL_ReleaseGPUTexture(device, trail_texture2);
     agent_buffer = NULL;
-    trail_texture_read = NULL;
-    trail_texture_write = NULL;
+    trail_texture1 = NULL;
+    trail_texture2 = NULL;
     int channels;
     int w;
     int h;
@@ -68,11 +70,6 @@ static bool reload(const char* path)
         0x0000FF, /* RED */
         0x00FF00, /* GREEN */
         0xFF0000, /* BLUE */
-        0xFFFFFF, /* WHITE */
-        0x000000, /* BLACK */
-        0xFF00FF, /* MAGENTA */
-        0xFFFF00, /* CYAN */
-        0x00FFFF, /* YELLOW */
     };
     agent_t* agents = malloc(WIDTH * HEIGHT * sizeof(agent_t));
     if (!agents)
@@ -112,7 +109,7 @@ static bool reload(const char* path)
         agent_t* agent = &agents[y * WIDTH + x];
         agent->x = x;
         agent->y = y;
-        agent->angle = 0.0f;
+        agent->angle = (float) rand() / RAND_MAX * SDL_PI_F * 2.0f;
         agent->color = color;
     }
     SDL_GPUCommandBuffer* cb = SDL_AcquireGPUCommandBuffer(device);
@@ -165,7 +162,7 @@ static bool reload(const char* path)
     SDL_ReleaseGPUTransferBuffer(device, tbo);
     SDL_GPUTextureCreateInfo tci = {0};
     tci.type = SDL_GPU_TEXTURETYPE_2D;
-    tci.format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_UINT;
+    tci.format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
     tci.usage =
         SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE |
         SDL_GPU_TEXTUREUSAGE_SAMPLER |
@@ -174,19 +171,19 @@ static bool reload(const char* path)
     tci.height = HEIGHT;
     tci.layer_count_or_depth = 1;
     tci.num_levels = 1;
-    trail_texture_read = SDL_CreateGPUTexture(device, &tci);
-    trail_texture_write = SDL_CreateGPUTexture(device, &tci);
-    if (!trail_texture_read || !trail_texture_write)
+    trail_texture1 = SDL_CreateGPUTexture(device, &tci);
+    trail_texture2 = SDL_CreateGPUTexture(device, &tci);
+    if (!trail_texture1 || !trail_texture2)
     {
         SDL_Log("Failed to create texture(s): %s", SDL_GetError());
         return false;
     }
     {
         SDL_GPUColorTargetInfo cti[2] = {0};
-        cti[0].texture = trail_texture_read;
+        cti[0].texture = trail_texture1;
         cti[0].load_op = SDL_GPU_LOADOP_CLEAR;
         cti[0].store_op = SDL_GPU_STOREOP_STORE;
-        cti[1].texture = trail_texture_write;
+        cti[1].texture = trail_texture2;
         cti[1].load_op = SDL_GPU_LOADOP_CLEAR;
         cti[1].store_op = SDL_GPU_STOREOP_STORE;
         SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cb, cti, 2, NULL);
@@ -276,7 +273,7 @@ int main(int argc, char** argv)
             .num_color_targets = 1,
             .color_target_descriptions = &(SDL_GPUColorTargetDescription)
             {
-                .format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_UINT
+                .format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT
             },
         },
     });
@@ -342,7 +339,7 @@ int main(int argc, char** argv)
             SDL_GPUStorageBufferReadWriteBinding sbb = {0};
             sbb.buffer = agent_buffer;
             SDL_GPUStorageTextureReadWriteBinding stb = {0};
-            stb.texture = trail_texture_write;
+            stb.texture = trail_texture2;
             stb.cycle = true;
             SDL_GPUComputePass* pass = SDL_BeginGPUComputePass(cb, &stb, 1, &sbb, 1);
             if (!pass)
@@ -354,18 +351,40 @@ int main(int argc, char** argv)
             }
             SDL_GPUTextureSamplerBinding tsb = {0};
             tsb.sampler = sampler;
-            tsb.texture = trail_texture_read;
+            tsb.texture = trail_texture1;
             SDL_BindGPUComputePipeline(pass, update_pipeline);
             SDL_BindGPUComputeSamplers(pass, 0, &tsb, 1);
+            const uint32_t time = SDL_GetTicks();
             const int x = (float) (WIDTH + THREADS_X - 1) / THREADS_X;
             const int y = (float) (HEIGHT + THREADS_Y - 1) / THREADS_Y;
+            SDL_PushGPUComputeUniformData(cb, 0, &time, sizeof(time));
             SDL_DispatchGPUCompute(pass, x, y, 1);
             SDL_EndGPUComputePass(pass);
             SDL_PopGPUDebugGroup(cb);
         }
-        SDL_GPUTexture* trail_texture = trail_texture_read;
-        trail_texture_read = trail_texture_write;
-        trail_texture_write = trail_texture;
+        {
+            SDL_PushGPUDebugGroup(cb, "blur");
+            SDL_GPUColorTargetInfo cti = {0};
+            cti.texture = trail_texture1;
+            cti.load_op = SDL_GPU_LOADOP_DONT_CARE;
+            cti.store_op = SDL_GPU_STOREOP_STORE;
+            SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cb, &cti, 1, NULL);
+            if (!pass)
+            {
+                SDL_PopGPUDebugGroup(cb);
+                SDL_SubmitGPUCommandBuffer(cb);
+                SDL_Log("Failed to begin draw pass: %s", SDL_GetError());
+                continue;
+            }
+            SDL_GPUTextureSamplerBinding binding = {0};
+            binding.texture = trail_texture2;
+            binding.sampler = sampler;
+            SDL_BindGPUGraphicsPipeline(pass, blur_pipeline);
+            SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
+            SDL_DrawGPUPrimitives(pass, 4, 1, 0, 0);
+            SDL_EndGPURenderPass(pass);
+            SDL_PopGPUDebugGroup(cb);
+        }
         {
             SDL_PushGPUDebugGroup(cb, "draw");
             SDL_GPUColorTargetInfo cti = {0};
@@ -381,7 +400,7 @@ int main(int argc, char** argv)
                 continue;
             }
             SDL_GPUTextureSamplerBinding binding = {0};
-            binding.texture = trail_texture_read;
+            binding.texture = trail_texture1;
             binding.sampler = sampler;
             SDL_BindGPUGraphicsPipeline(pass, draw_pipeline);
             SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
@@ -392,8 +411,8 @@ int main(int argc, char** argv)
         SDL_SubmitGPUCommandBuffer(cb);
     }
     SDL_ReleaseGPUBuffer(device, agent_buffer);
-    SDL_ReleaseGPUTexture(device, trail_texture_read);
-    SDL_ReleaseGPUTexture(device, trail_texture_write);
+    SDL_ReleaseGPUTexture(device, trail_texture1);
+    SDL_ReleaseGPUTexture(device, trail_texture2);
     SDL_ReleaseGPUSampler(device, sampler);
     SDL_ReleaseGPUComputePipeline(device, update_pipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, draw_pipeline);

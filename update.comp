@@ -1,3 +1,5 @@
+/* TODO: delta time */
+
 #version 450
 
 #include "config.h"
@@ -11,12 +13,21 @@ struct agent_t
     uint color;
 };
 
-layout(set = 0, binding = 0) uniform usampler2D s_trail_read;
-layout(set = 1, binding = 0, rgba32ui) uniform writeonly uimage2D i_trail_write;
+layout(set = 0, binding = 0) uniform sampler2D s_trail_read;
+layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D i_trail_write;
 layout(set = 1, binding = 1) buffer t_agents
 {
     agent_t b_agents[];
 };
+layout(set = 2, binding = 0) uniform t_time
+{
+    uint u_time;
+};
+
+float rand(const vec2 position)
+{
+    return fract(sin(dot(position, vec2(12.9898, 78.233))) * 43758.5453);
+}
 
 void main()
 {
@@ -25,32 +36,69 @@ void main()
     {
         return;
     }
-    agent_t agent = b_agents[id.y * WIDTH + id.x];
-    uvec4 trail = texelFetch(s_trail_read, ivec2(agent.position), 0);
-    // const uint counts[] = uint[COLOR_COUNT]
-    // (
-    //     GET_RED(trail),
-    //     GET_GREEN(trail),
-    //     GET_BLUE(trail),
-    //     GET_WHITE(trail),
-    //     GET_BLACK(trail),
-    //     GET_MAGENTA(trail),
-    //     GET_CYAN(trail),
-    //     GET_YELLOW(trail)
-    // );
-    uvec4 colors[COLOR_COUNT];
-    for (int i = 0; i < COLOR_COUNT; i++)
+    if (id.x % POPULATION != 0 || id.y % POPULATION != 0)
     {
-        colors[i] = uvec4(0);
+        return;
     }
-    SET_RED(colors[COLOR_RED], 1);
-    SET_GREEN(colors[COLOR_GREEN], 1);
-    SET_BLUE(colors[COLOR_BLUE], 1);
-    SET_WHITE(colors[COLOR_WHITE], 1);
-    SET_BLACK(colors[COLOR_BLACK], 1);
-    SET_MAGENTA(colors[COLOR_MAGENTA], 1);
-    SET_CYAN(colors[COLOR_CYAN], 1);
-    SET_YELLOW(colors[COLOR_YELLOW], 1);
-    trail += colors[agent.color];
+    agent_t agent = b_agents[id.y * WIDTH + id.x];
+    if (agent.position.x < 0 || agent.position.y < 0 ||
+        agent.position.x >= WIDTH || agent.position.y >= HEIGHT)
+    {
+        agent.position.x = clamp(agent.position.x, 0, WIDTH - 1);
+        agent.position.y = clamp(agent.position.y, 0, HEIGHT - 1);
+        agent.angle = rand(id) * 2 * 3.14;
+    }
+    const float angles[] = float[SENSORS]
+    (
+        agent.angle - SENSE_ANGLE,
+        agent.angle,
+        agent.angle + SENSE_ANGLE
+    );
+    vec2 directions[SENSORS];
+    for (int i = 0; i < SENSORS; i++)
+    {
+        directions[i] = vec2(cos(angles[i]), sin(angles[i]));
+    }
+    ivec2 positions[SENSORS];
+    for (int i = 0; i < SENSORS; i++)
+    {
+        positions[i] = ivec2(agent.position + directions[i] * SENSE_DISTANCE);
+    }
+    float counts[SENSORS];
+    for (int i = 0; i < SENSORS; i++)
+    {
+        vec4 trail = vec4(0);
+        for (int x = -SENSE_SIZE; x <= SENSE_SIZE; x++)
+        for (int y = -SENSE_SIZE; y <= SENSE_SIZE; y++)
+        {
+            const ivec2 coord = positions[i] + ivec2(x, y);
+            trail += texelFetch(s_trail_read, coord, 0);
+        }
+        trail /= pow(SENSE_SIZE * 2 + 1, 2);
+        counts[i] = trail[agent.color];
+    }
+    if (counts[1] > counts[0] && counts[1] > counts[2])
+    {
+        /* pass */
+    }
+    else if (counts[1] < counts[0] && counts[1] < counts[2])
+    {
+        /* TODO */
+    }
+    else if (counts[2] > counts[0])
+    {
+        agent.angle += AGENT_STEER_SPEED;
+    }
+    else if (counts[0] > counts[2])
+    {
+        agent.angle -= AGENT_STEER_SPEED;
+    }
+
+    const vec2 direction = vec2(cos(agent.angle), sin(agent.angle));
+    agent.position += AGENT_SPEED * direction;
+
+    vec4 trail = texelFetch(s_trail_read, ivec2(agent.position), 0);
+    trail[agent.color] += 1.0f;
     imageStore(i_trail_write, ivec2(agent.position), trail);
+    b_agents[id.y * WIDTH + id.x] = agent;
 }
