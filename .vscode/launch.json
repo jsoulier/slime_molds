@@ -5,7 +5,7 @@
             "name": "win32",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/slime_molds.exe",
+            "program": "${workspaceFolder}/build/bin/png2slime.exe",
             "args": [
                 "${workspaceFolder}/images/test.jpg"
             ],

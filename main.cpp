@@ -11,9 +11,6 @@
 #include "stb_image.h"
 #include "stb_image_resize.h"
 
-#define WIDTH 960
-#define HEIGHT 720
-
 enum Color : uint32_t
 {
     COLOR_RED,
@@ -41,15 +38,19 @@ static SDL_GPUComputePipeline* update_pipeline;
 static SDL_GPUGraphicsPipeline* blur_pipeline;
 static SDL_GPUGraphicsPipeline* draw_pipeline;
 static SDL_GPUBuffer* agent_buffer;
-static SDL_GPUTexture* trail_texture;
+static SDL_GPUTexture* trail_textures[2];
 static SDL_GPUSampler* sampler;
+static int frame;
 
 static bool reload(const char* path)
 {
     SDL_ReleaseGPUBuffer(device, agent_buffer);
-    SDL_ReleaseGPUTexture(device, trail_texture);
+    for (int i = 0; i < FRAMES; i++)
+    {
+        SDL_ReleaseGPUTexture(device, trail_textures[i]);
+        trail_textures[i] = nullptr;
+    }
     agent_buffer = nullptr;
-    trail_texture = nullptr;
     int channels;
     int width;
     int height;
@@ -167,30 +168,34 @@ static bool reload(const char* path)
     texture_info.type = SDL_GPU_TEXTURETYPE_2D;
     texture_info.format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_UINT;
     texture_info.usage =
-        SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE |
+        SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_READ |
+        SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE |
         SDL_GPU_TEXTUREUSAGE_SAMPLER |
         SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
     texture_info.width = WIDTH;
     texture_info.height = HEIGHT;
     texture_info.layer_count_or_depth = 1;
     texture_info.num_levels = 1;
-    trail_texture = SDL_CreateGPUTexture(device, &texture_info);
-    if (!trail_texture)
+    for (int i = 0; i < FRAMES; i++)
     {
-        std::println("Failed to create texture: {}", SDL_GetError());
-        return false;
+        trail_textures[i] = SDL_CreateGPUTexture(device, &texture_info);
+        if (!trail_textures[i])
+        {
+            std::println("Failed to create texture: {}", SDL_GetError());
+            return false;
+        }
+        SDL_GPUColorTargetInfo target_info{};
+        target_info.texture = trail_textures[i];
+        target_info.load_op = SDL_GPU_LOADOP_CLEAR;
+        target_info.store_op = SDL_GPU_STOREOP_STORE;
+        SDL_GPURenderPass* render_pass = SDL_BeginGPURenderPass(command_buffer, &target_info, 1, nullptr);
+        if (!render_pass)
+        {
+            std::println("Failed to begin render pass: {}", SDL_GetError());
+            return false;
+        }
+        SDL_EndGPURenderPass(render_pass);
     }
-    SDL_GPUColorTargetInfo target_info{};
-    target_info.texture = trail_texture;
-    target_info.load_op = SDL_GPU_LOADOP_CLEAR;
-    target_info.store_op = SDL_GPU_STOREOP_STORE;
-    SDL_GPURenderPass* render_pass = SDL_BeginGPURenderPass(command_buffer, &target_info, 1, nullptr);
-    if (!render_pass)
-    {
-        std::println("Failed to begin render pass: {}", SDL_GetError());
-        return false;
-    }
-    SDL_EndGPURenderPass(render_pass);
     SDL_SubmitGPUCommandBuffer(command_buffer);
     free(dst);
     return true;
@@ -199,13 +204,13 @@ static bool reload(const char* path)
 int main(int argc, char** argv)
 {
     SDL_SetLogPriorities(SDL_LOG_PRIORITY_VERBOSE);
-    SDL_SetAppMetadata("slime_molds", nullptr, nullptr);
+    SDL_SetAppMetadata("png2slime", nullptr, nullptr);
     if (!SDL_Init(SDL_INIT_VIDEO))
     {
         std::println("Failed to initialize SDL: {}", SDL_GetError());
         return 1;
     }
-    window = SDL_CreateWindow("slime_molds", 960, 540, SDL_WINDOW_RESIZABLE);
+    window = SDL_CreateWindow("png2slime", 960, 540, SDL_WINDOW_RESIZABLE);
     if (!window)
     {
         std::println("Failed to create window: {}", SDL_GetError());
@@ -260,16 +265,32 @@ int main(int argc, char** argv)
         }
         return shader;
     };
-    SDL_GPUShader* draw_shader = load("draw.frag", 0, 0,0, 0);
-    SDL_GPUShader* blur_shader = load("blur.frag", 0, 0,0, 0);
-    SDL_GPUShader* quad_shader = load("quad.vert", 0, 0,0, 0);
+    SDL_GPUShader* draw_shader = load("draw.frag", 0, 1, 0, 0);
+    SDL_GPUShader* blur_shader = load("blur.frag", 0, 0, 0, 0);
+    SDL_GPUShader* quad_shader = load("quad.vert", 0, 0, 0, 0);
     if (!blur_shader || !draw_shader || !quad_shader)
     {
         std::println("Failed to load shader(s)");
         return false;
     }
-    SDL_GPUColorTargetDescription draw_target = {SDL_GetGPUSwapchainTextureFormat(device, window)};
-    SDL_GPUColorTargetDescription blur_target = {SDL_GPU_TEXTUREFORMAT_R32G32B32A32_UINT};
+    SDL_GPUColorTargetDescription draw_target =
+    {
+        .format = SDL_GetGPUSwapchainTextureFormat(device, window),
+        .blend_state =
+        {
+            .src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+            .dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            .color_blend_op = SDL_GPU_BLENDOP_ADD,
+            .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+            .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            .alpha_blend_op = SDL_GPU_BLENDOP_ADD,
+            .enable_blend = true,
+        }
+    };
+    SDL_GPUColorTargetDescription blur_target =
+    {
+        .format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_UINT
+    };
     SDL_GPUGraphicsPipelineCreateInfo draw_pipeline_info =
     {
         .vertex_shader = quad_shader,
@@ -305,6 +326,31 @@ int main(int argc, char** argv)
     SDL_ReleaseGPUShader(device, blur_shader);
     SDL_ReleaseGPUShader(device, draw_shader);
     SDL_ReleaseGPUShader(device, quad_shader);
+    SDL_GPUComputePipelineCreateInfo update_pipeline_info{};
+    void* code = SDL_LoadFile("update.comp", &update_pipeline_info.code_size);
+    if (!code)
+    {
+        std::println("Failed to load shader: {}, {}", "update.comp", SDL_GetError());
+        return 1;
+    }
+    update_pipeline_info.code = static_cast<uint8_t*>(code);
+    update_pipeline_info.threadcount_x = THREADS_X;
+    update_pipeline_info.threadcount_y = THREADS_Y;
+    update_pipeline_info.threadcount_z = THREADS_Z;
+    update_pipeline_info.num_readonly_storage_buffers = 0;
+    update_pipeline_info.num_readwrite_storage_buffers = 1;
+    update_pipeline_info.num_readonly_storage_textures = 1;
+    update_pipeline_info.num_readwrite_storage_textures = 1;
+    update_pipeline_info.num_samplers = 0;
+    update_pipeline_info.num_uniform_buffers = 0;
+    update_pipeline_info.entrypoint = "main";
+    update_pipeline_info.format = SDL_GPU_SHADERFORMAT_SPIRV;
+    update_pipeline = SDL_CreateGPUComputePipeline(device, &update_pipeline_info);
+    if (!update_pipeline)
+    {
+        std::println("Failed to create update pipeline: {}", SDL_GetError());
+        return 1;
+    }
     SDL_GPUSamplerCreateInfo sampler_info{};
     sampler_info.min_filter = SDL_GPU_FILTER_NEAREST;
     sampler_info.mag_filter = SDL_GPU_FILTER_NEAREST;
@@ -350,11 +396,61 @@ int main(int argc, char** argv)
             SDL_CancelGPUCommandBuffer(command_buffer);
             continue;
         }
+        const int read_frame = frame;
+        const int write_frame = (frame + 1) % FRAMES;
+        {
+            SDL_PushGPUDebugGroup(command_buffer, "update");
+            SDL_GPUStorageBufferReadWriteBinding buffer_binding{};
+            buffer_binding.buffer = agent_buffer;
+            SDL_GPUStorageTextureReadWriteBinding texture_binding{};
+            texture_binding.texture = trail_textures[write_frame];
+            SDL_GPUComputePass* compute_pass = SDL_BeginGPUComputePass(command_buffer, &texture_binding, 1, &buffer_binding, 1);
+            if (!compute_pass)
+            {
+                SDL_PopGPUDebugGroup(command_buffer);
+                SDL_CancelGPUCommandBuffer(command_buffer);
+                std::println("Failed to begin update pass: {}", SDL_GetError());
+                continue;
+            }
+            SDL_BindGPUComputePipeline(compute_pass, update_pipeline);
+            SDL_BindGPUComputeStorageTextures(compute_pass, 0, &trail_textures[read_frame], 1);
+            SDL_DispatchGPUCompute(compute_pass, (WIDTH + THREADS_X - 1) / THREADS_X, (HEIGHT + THREADS_Y - 1) / THREADS_Y, 1);
+            SDL_EndGPUComputePass(compute_pass);
+            SDL_PopGPUDebugGroup(command_buffer);
+        }
+        {
+            SDL_PushGPUDebugGroup(command_buffer, "draw");
+            SDL_GPUColorTargetInfo info{};
+            info.texture = texture;
+            info.load_op = SDL_GPU_LOADOP_CLEAR;
+            info.store_op = SDL_GPU_STOREOP_STORE;
+            SDL_GPURenderPass* render_pass = SDL_BeginGPURenderPass(command_buffer, &info, 1, nullptr);
+            if (!render_pass)
+            {
+                SDL_PopGPUDebugGroup(command_buffer);
+                SDL_CancelGPUCommandBuffer(command_buffer);
+                std::println("Failed to begin draw pass: {}", SDL_GetError());
+                continue;
+            }
+            SDL_GPUTextureSamplerBinding binding{};
+            binding.texture = trail_textures[write_frame];
+            binding.sampler = sampler;
+            SDL_BindGPUGraphicsPipeline(render_pass, draw_pipeline);
+            SDL_BindGPUFragmentSamplers(render_pass, 0, &binding, 1);
+            SDL_DrawGPUPrimitives(render_pass, 4, 1, 0, 0);
+            SDL_EndGPURenderPass(render_pass);
+            SDL_PopGPUDebugGroup(command_buffer);
+        }
         SDL_SubmitGPUCommandBuffer(command_buffer);
+        frame = write_frame;
     }
     SDL_ReleaseGPUBuffer(device, agent_buffer);
-    SDL_ReleaseGPUTexture(device, trail_texture);
+    for (int i = 0; i < FRAMES; i++)
+    {
+        SDL_ReleaseGPUTexture(device, trail_textures[i]);
+    }
     SDL_ReleaseGPUSampler(device, sampler);
+    SDL_ReleaseGPUComputePipeline(device, update_pipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, draw_pipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, blur_pipeline);
     SDL_ReleaseWindowFromGPUDevice(device, window);

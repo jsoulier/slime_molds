@@ -1,5 +1,19 @@
 #version 450
 
+struct Agent
+{
+    vec2 position;
+    float angle;
+    uint color;
+};
+
+layout(set = 0, binding = 0, rgba32ui) uniform readonly uimage2D s_trail_read;
+layout(set = 1, binding = 0, rgba32ui) uniform writeonly uimage2D s_trail_write;
+layout(set = 1, binding = 1) buffer t_agents
+{
+    Agent b_agents[];
+};
+
 void main()
 {
 
