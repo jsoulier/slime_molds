@@ -20,7 +20,10 @@ add_executable(png2slime WIN32
 set_target_properties(png2slime PROPERTIES C_STANDARD 11)
 target_include_directories(png2slime PUBLIC lib/spirv_reflect)
 target_include_directories(png2slime PUBLIC lib/stb)
-target_link_libraries(png2slime PUBLIC SDL3::SDL3)
+target_link_libraries(png2slime SDL3::SDL3)
+if(UNIX)
+    target_link_libraries(png2slime m)
+endif()
 
 function(spirv FILE)
     set(OUTPUT ${BINARY_DIR}/${FILE})
