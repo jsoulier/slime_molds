@@ -6,9 +6,6 @@
             "type": "cppvsdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/png2slime.exe",
-            "args": [
-                "${workspaceFolder}/images/test.jpg"
-            ],
             "cwd": "${workspaceFolder}/build/bin",
             "preLaunchTask": "CMake: build"
         },

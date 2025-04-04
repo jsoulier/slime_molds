@@ -71,7 +71,6 @@ static bool reload(const char* path)
         0x00FF00, /* green */
         0xFF0000, /* blue */
         0xFFFFFF, /* white */
-        0x000000, /* black */
         0xFF00FF, /* magenta */
         0xFFFF00, /* cyan */
         0x00FFFF, /* yellow */
@@ -289,8 +288,14 @@ int main(int argc, char** argv)
         return 1;
     }
     bool running = true;
+    uint64_t t1 = SDL_GetPerformanceCounter();
+    uint64_t t2 = 0;
     while (running)
     {
+        t2 = t1;
+        t1 = SDL_GetPerformanceCounter();
+        const float frequency = SDL_GetPerformanceFrequency();
+        const float dt = (t1 - t2) / frequency;
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
@@ -298,6 +303,9 @@ int main(int argc, char** argv)
             {
             case SDL_EVENT_QUIT:
                 running = false;
+                break;
+            case SDL_EVENT_DROP_FILE:
+                reload(event.drop.data);
                 break;
             }
         }
@@ -341,6 +349,8 @@ int main(int argc, char** argv)
             SDL_BindGPUComputeSamplers(pass, 0, &tsb, 1);
             const int x = (float) (WIDTH + THREADS_X - 1) / THREADS_X;
             const int y = (float) (HEIGHT + THREADS_Y - 1) / THREADS_Y;
+            SDL_PushGPUComputeUniformData(cb, 0, &t2, sizeof(t2));
+            SDL_PushGPUComputeUniformData(cb, 1, &dt, sizeof(dt));
             SDL_DispatchGPUCompute(pass, x, y, 1);
             SDL_EndGPUComputePass(pass);
             SDL_PopGPUDebugGroup(cb);

@@ -12,7 +12,6 @@ const vec3 colors[] = vec3[COLOR_COUNT]
     vec3(0.0f, 1.0f, 0.0f), /* green */
     vec3(0.0f, 0.0f, 1.0f), /* blue */
     vec3(1.0f, 1.0f, 1.0f), /* white */
-    vec3(0.0f, 0.0f, 0.0f), /* black */
     vec3(1.0f, 0.0f, 1.0f), /* magenta */
     vec3(0.0f, 1.0f, 1.0f), /* cyan */
     vec3(1.0f, 1.0f, 0.0f)  /* yellow */
@@ -30,7 +29,7 @@ void main()
         const float count = texelFetch(s_trail, coord, 0).x;
         if (count > highest)
         {
-            o_color = vec4(colors[i], count / 2.0f);
+            o_color = vec4(colors[i], count / 2.0f) * 3.0f;
             highest = count;
         }
     }
