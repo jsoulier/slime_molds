@@ -328,6 +328,23 @@ int main(int argc, char** argv)
             continue;
         }
         {
+            SDL_PushGPUDebugGroup(cb, "blit");
+            SDL_GPUBlitInfo info = {0};
+            info.source.texture = trail_texture1;
+            info.source.w = WIDTH;
+            info.source.h = HEIGHT;
+            info.destination.texture = trail_texture2;
+            info.destination.w = WIDTH;
+            info.destination.h = HEIGHT;
+            for (int i = 0; i < COLOR_COUNT; i++)
+            {
+                info.source.layer_or_depth_plane = i;
+                info.destination.layer_or_depth_plane = i;
+                SDL_BlitGPUTexture(cb, &info);
+            }
+            SDL_PopGPUDebugGroup(cb);
+        }
+        {
             SDL_PushGPUDebugGroup(cb, "update");
             SDL_GPUStorageBufferReadWriteBinding sbb = {0};
             sbb.buffer = agent_buffer;
