@@ -3,13 +3,8 @@
 I have no idea why I made this. It's pretty cool though
 
 ![](images/flower1.jpg)
-*Starting image*
-
 ![](doc/flower1.png)
-*Slime conversion*
-
 ![](doc/flower2.png)
-*After 10 seconds*
 
 For each pixel in the image, an "agent" is created.
 The pixel is mapped to a palette of 7 colors giving 7 different species.

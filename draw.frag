@@ -19,7 +19,6 @@ const vec3 colors[] = vec3[COLOR_COUNT]
 
 void main()
 {
-    ivec3 texelCoords;
     float highest = 0.0;
     o_color = vec4(0.0f);
     

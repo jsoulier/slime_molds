@@ -25,7 +25,7 @@ layout(set = 2, binding = 1) uniform t_delta_time
     float u_delta_time;
 };
 
-// Hash function www.cs.ubc.ca/~rbridson/docs/schechter-sca08-turbulence.pdf
+/* www.cs.ubc.ca/~rbridson/docs/schechter-sca08-turbulence.pdf */
 uint hash(uint state)
 {
     state ^= 2747636419u;
@@ -89,8 +89,6 @@ void main()
             vec2 coord = positions[i] + vec2(x, y);
             coord.x = clamp(coord.x, 0, WIDTH - 1);
             coord.y = clamp(coord.y, 0, HEIGHT - 1);
-            coord.x = round(coord.x);
-            coord.y = round(coord.y);
             for (int j = 0; j < 2; j++)
             {
                 counts[i] += texelFetch(s_trail_read, ivec3(coord, agent.color), 0).x;
