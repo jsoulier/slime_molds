@@ -1,4 +1,4 @@
-# PNG to Slime Mold (Physarum) Converter
+# Image to Slime Mold (Physarum) Converter
 
 I have no idea why I made this. It's pretty cool though
 
@@ -8,7 +8,7 @@ I have no idea why I made this. It's pretty cool though
 
 For each pixel in the image, an "agent" is created.
 The pixel is mapped to a palette of 7 colors giving 7 different species.
-In a compute shader, agents flock towards agents of the same species and away from agents of differing ones.
+In a compute shader, agents move towards agents of the same species and away from agents of differing ones.
 
 ### Building
 
