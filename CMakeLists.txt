@@ -10,16 +10,16 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE ${BINARY_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_DEBUG ${BINARY_DIR})
 make_directory(${BINARY_DIR})
 
-add_subdirectory(SDL)
+add_subdirectory(lib/SDL)
 add_executable(png2slime WIN32
+    lib/spirv_reflect/spirv_reflect.c
+    lib/stb/stb.c
     main.c
-    spirv_reflect/spirv_reflect.c
-    stb/stb.c
     util.c
 )
 set_target_properties(png2slime PROPERTIES C_STANDARD 11)
-target_include_directories(png2slime PUBLIC spirv_reflect)
-target_include_directories(png2slime PUBLIC stb)
+target_include_directories(png2slime PUBLIC lib/spirv_reflect)
+target_include_directories(png2slime PUBLIC lib/stb)
 target_link_libraries(png2slime PUBLIC SDL3::SDL3)
 
 function(spirv FILE)
